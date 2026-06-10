@@ -424,9 +424,11 @@ function connectLiveFeeds() {
             if (!d || !d.price) return;
             const p = parseFloat(d.price);
             const ageMs = Date.now() - new Date(d.timestamp).getTime();
-            if (p > 100 && ageMs < 15000) {  // ใช้เฉพาะข้อมูลที่ไม่เก่าเกิน 15 วินาที
+            if (p > 100 && ageMs < 15000) {
                 priceSource = 'MT5-Firebase';
-                elStatus.textContent = `เชื่อมต่อตลาดจริง (MT5 → Firebase ✅) อัปเดต ${Math.round(ageMs/1000)}s ที่แล้ว`;
+                // หยุด REST polling เมื่อ RTDB ทำงานแล้ว — ป้องกันราคากระโดด
+                if (restIv) { clearInterval(restIv); restIv = null; }
+                elStatus.textContent = `เชื่อมต่อตลาดจริง (MT5 → Firebase ✅)`;
                 processLiveTick(p, 'MT5-Firebase');
             }
         }, (err) => {
@@ -441,6 +443,8 @@ function connectLiveFeeds() {
             let opened = false;
             ws.onopen = () => { opened = true; };
             ws.onmessage = ev => {
+                // ข้ามถ้า RTDB หรือ MT5 Localhost กำลังทำงาน
+                if (priceSource === 'MT5-Firebase' || priceSource === 'MT5') return;
                 try {
                     const d = JSON.parse(ev.data);
                     const p = parseFloat(d.gold || d.xauusd || d.XAUUSD || 0);
@@ -459,6 +463,8 @@ function connectLiveFeeds() {
 
     const fetchSpot = async () => {
         if (priceSource === 'TradingView') return;
+        // ข้ามถ้า RTDB กำลังทำงาน — ป้องกันราคากระโดด
+        if (priceSource === 'MT5-Firebase') return;
 
         // Priority 1: MT5 Bridge (ngrok URL ก่อน, แล้ว fallback localhost)
         const mt5Endpoints = [];
