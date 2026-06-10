@@ -415,11 +415,12 @@ function updateChartData() {
     updateStatsUI();
 }
 
-// Ensure TV Widget loads
+// Ensure TV Widget loads, then immediately fetch initial candle history
 if (window.LightweightCharts) {
     initTVWidget();
+    fetchHistory();
 } else {
-    setTimeout(initTVWidget, 1000);
+    setTimeout(() => { initTVWidget(); fetchHistory(); }, 1000);
 }
 
 // Timeframe selection state
@@ -627,11 +628,12 @@ function processLiveTick(price, source) {
     }
 }
 
-// Ensure TV Widget loads
-if (window.TradingView) {
+// Ensure TV Widget loads, then immediately fetch initial candle history
+if (window.LightweightCharts) {
     initTVWidget();
+    fetchHistory();
 } else {
-    setTimeout(initTVWidget, 1000);
+    setTimeout(() => { initTVWidget(); fetchHistory(); }, 1000);
 }
 
 // Start: load trades first, then init chart data
