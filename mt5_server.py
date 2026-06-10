@@ -31,27 +31,42 @@ PUSH_INTERVAL = 2
 # =====================================================================
 
 
-# --- ลองโหลด MetaTrader5 (Windows only) ---
+# --- ลองโหลด MetaTrader5 (Windows) หรือ siliconmetatrader5 (Mac Docker) ---
+_mt5_lib = None
+_mt5_available = False
+_mt5_symbol = "XAUUSD"
+
 try:
     import MetaTrader5 as _mt5_lib
     _mt5_available = True
+    _mt5_symbol = "XAUUSD"
 except ImportError:
-    _mt5_lib = None
-    _mt5_available = False
+    pass
+
+if not _mt5_available:
+    try:
+        import siliconmetatrader5 as _smt5_module
+        _mt5_lib = _smt5_module.MetaTrader5(host="localhost", port=8001)
+        _mt5_available = True
+        _mt5_symbol = "XAUUSDm"   # Exness Mac ใช้ suffix m
+        print("✅ siliconmetatrader5 (Mac Docker MT5) พร้อมแล้ว")
+    except Exception as e:
+        print(f"⚠️  siliconmetatrader5 โหลดไม่ได้: {e}")
 
 _mt5_initialized = False
 _price_source_label = "unknown"
 
 
 def _price_from_mt5():
-    """ดึงราคาจาก MT5 Python API (Windows เท่านั้น)"""
+    """ดึงราคาจาก MT5 (Windows native หรือ Mac Docker)"""
     global _mt5_initialized
     try:
         if not _mt5_initialized:
             if not _mt5_lib.initialize():
                 return None
+            _mt5_lib.symbol_select(_mt5_symbol, True)
             _mt5_initialized = True
-        tick = _mt5_lib.symbol_info_tick("XAUUSD")
+        tick = _mt5_lib.symbol_info_tick(_mt5_symbol)
         return round(tick.ask, 2) if tick else None
     except Exception:
         _mt5_initialized = False
