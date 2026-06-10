@@ -86,6 +86,14 @@ body {
     transition: color 0.3s, transform 0.1s;
 }
 
+/* Chart wrapper (desktop baseline — media query overrides on mobile) */
+.tv-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
 /* Dashboard Layout */
 .dashboard {
     display: flex;
@@ -277,4 +285,124 @@ body {
 @keyframes popIn {
     0% { transform: scale(0.8); opacity: 0; }
     100% { transform: scale(1); opacity: 1; }
+}
+
+/* =====================================================================
+   MOBILE RESPONSIVE
+   ===================================================================== */
+
+/* Tab Bar (มือถือเท่านั้น) */
+.mobile-tabs {
+    display: none;
+}
+
+@media (max-width: 768px) {
+
+    /* --- Body --- */
+    body {
+        height: 100dvh;
+        overflow: hidden;
+        flex-direction: column;
+    }
+
+    /* --- Header --- */
+    .app-header {
+        padding: 8px 12px;
+        flex-wrap: nowrap;
+        gap: 6px;
+    }
+    .app-header h1 { display: none; }
+    .logo { gap: 6px; }
+    .gold-text { font-size: 1rem; }
+    .status-indicator { gap: 6px; font-size: 0.75rem; }
+    #connection-status { display: none; }  /* ซ่อน text ยาว */
+    #firebase-status { display: none; }
+    .price-badge {
+        font-size: 1.2rem;
+        padding: 4px 10px;
+        min-width: 90px;
+    }
+
+    /* --- Dashboard --- */
+    .dashboard {
+        flex: 1;
+        flex-direction: column;
+        overflow: hidden;
+        position: relative;
+    }
+
+    /* --- Tab Panels --- */
+    .tv-wrapper {
+        flex: 1;
+        display: none;
+        flex-direction: column;
+        min-height: 0;
+    }
+    .tv-wrapper.tab-active {
+        display: flex;
+    }
+
+    .sidebar-panel {
+        width: 100%;
+        flex: 1;
+        display: none;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .sidebar-panel.tab-active {
+        display: flex;
+    }
+
+    /* --- Tab Bar --- */
+    .mobile-tabs {
+        display: flex;
+        background: var(--panel-bg);
+        border-top: 1px solid var(--border);
+        flex-shrink: 0;
+        z-index: 50;
+    }
+    .mobile-tabs button {
+        flex: 1;
+        padding: 10px 4px;
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        font-family: inherit;
+        cursor: pointer;
+        border-top: 2px solid transparent;
+        transition: all 0.2s;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+    }
+    .mobile-tabs button .tab-icon { font-size: 1.2rem; }
+    .mobile-tabs button.active {
+        color: var(--gold);
+        border-top-color: var(--gold);
+    }
+
+    /* --- Panel sections --- */
+    .panel-section {
+        padding: 14px;
+    }
+    .panel-section h2 {
+        font-size: 0.85rem;
+        margin-bottom: 10px;
+    }
+    .zone-val { font-size: 1rem; }
+
+    /* --- Signal card --- */
+    .signal-card h3 { font-size: 1rem; }
+
+    /* --- Timeframe selector --- */
+    #timeframe-select { font-size: 0.85rem; padding: 5px 8px; }
+
+    /* --- Modal --- */
+    .modal-content {
+        margin: 16px;
+        padding: 20px;
+        max-width: calc(100vw - 32px);
+    }
 }

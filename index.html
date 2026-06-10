@@ -9,12 +9,6 @@
     <link rel="stylesheet" href="styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
-        .tv-wrapper {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            position: relative;
-        }
         #tv_chart_container {
             flex: 1;
             width: 100%;
@@ -58,7 +52,7 @@
 
     <main class="dashboard">
         <!-- Chart Area using TradingView Widget -->
-        <section class="tv-wrapper">
+        <section class="tv-wrapper tab-active" id="chart-panel">
             <div style="padding: 10px; background: #151a25; border-bottom: 1px solid #1f2937; display: flex; align-items: center; gap: 10px;">
                 <label for="timeframe-select" style="color: #d1d4dc; font-weight: 600;">เลือก Timeframe:</label>
                 <select id="timeframe-select" style="padding: 6px 12px; background: #1f2937; color: white; border: 1px solid #374151; border-radius: 6px; cursor: pointer; font-family: inherit;">
@@ -73,8 +67,8 @@
         </section>
 
         <!-- Sidebar Panel for Analysis -->
-        <section class="sidebar-panel">
-            <div class="panel-section">
+        <section class="sidebar-panel" id="sidebar-panel">
+            <div class="panel-section" id="section-info">
                 <h2>ข้อมูลตลาด (Live)</h2>
                 <div class="stat-row">
                     <span>เทรนด์ปัจจุบัน:</span>
@@ -100,7 +94,7 @@
                 </div>
             </div>
 
-            <div class="panel-section highlight">
+            <div class="panel-section highlight" id="section-signal">
                 <h2>สัญญาณล่าสุด (ไม่รีเพนท์)</h2>
                 <div id="latest-signal" class="signal-card waiting">
                     <h3 id="signal-type">กำลังรอจังหวะเทรด...</h3>
@@ -144,7 +138,7 @@
             </div>
             
             <!-- Price Alert Panel -->
-            <div class="panel-section">
+            <div class="panel-section" id="section-alert">
                 <h2>🔔 แจ้งเตือนราคา (Telegram)</h2>
                 <div style="display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap;">
                     <input id="alert-price-input" type="number" step="0.1" placeholder="ราคาเป้าหมาย เช่น 4200.00"
@@ -172,6 +166,22 @@
         </section>
     </main>
 
+    <!-- Mobile Tab Bar -->
+    <nav class="mobile-tabs">
+        <button id="tab-chart" class="active" onclick="switchTab('chart')">
+            <span class="tab-icon">📈</span>กราฟ
+        </button>
+        <button id="tab-signal" onclick="switchTab('signal')">
+            <span class="tab-icon">🎯</span>สัญญาณ
+        </button>
+        <button id="tab-info" onclick="switchTab('info')">
+            <span class="tab-icon">📊</span>ข้อมูล
+        </button>
+        <button id="tab-alert" onclick="switchTab('alert')">
+            <span class="tab-icon">🔔</span>แจ้งเตือน
+        </button>
+    </nav>
+
     <!-- Alert Modal for Signals -->
     <div id="alert-modal" class="modal-backdrop" style="display: none;">
         <div class="modal-content">
@@ -191,5 +201,46 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 
     <script src="script.js"></script>
+    <script>
+    function switchTab(tab) {
+        const isMobile = window.innerWidth <= 768;
+        if (!isMobile) return;
+
+        const chartPanel   = document.getElementById('chart-panel');
+        const sidebarPanel = document.getElementById('sidebar-panel');
+
+        // update tab button states
+        ['chart','signal','info','alert'].forEach(t => {
+            const btn = document.getElementById('tab-' + t);
+            if (btn) btn.classList.toggle('active', t === tab);
+        });
+
+        if (tab === 'chart') {
+            chartPanel.classList.add('tab-active');
+            sidebarPanel.classList.remove('tab-active');
+            // resize chart after becoming visible
+            setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 50);
+        } else {
+            chartPanel.classList.remove('tab-active');
+            sidebarPanel.classList.add('tab-active');
+            // scroll to the relevant section
+            const sectionMap = {
+                signal: 'section-signal',
+                info:   'section-info',
+                alert:  'section-alert'
+            };
+            const target = document.getElementById(sectionMap[tab]);
+            if (target) setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+        }
+    }
+
+    // on desktop always keep both panels visible
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 768) {
+            document.getElementById('chart-panel').classList.add('tab-active');
+            document.getElementById('sidebar-panel').classList.add('tab-active');
+        }
+    });
+    </script>
 </body>
 </html>
