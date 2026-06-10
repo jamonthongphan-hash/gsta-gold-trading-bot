@@ -58,6 +58,21 @@ def _price_from_mt5():
         return None
 
 
+def _price_from_local_bridge():
+    """ดึงราคาจาก MT5 bridge ที่รันอยู่แล้วบน localhost:8050"""
+    if not HAS_REQUESTS:
+        return None
+    try:
+        r = req_lib.get('http://localhost:8050/api/price', timeout=2)
+        if r.status_code == 200:
+            data = r.json()
+            p = float(data.get('ask') or data.get('price') or 0)
+            return round(p, 2) if p > 100 else None
+    except Exception:
+        pass
+    return None
+
+
 def _price_from_yahoo():
     """ดึง XAUUSD จาก Yahoo Finance"""
     if not HAS_REQUESTS:
@@ -96,13 +111,19 @@ def get_mt5_price():
             _price_source_label = "MT5"
             return p
 
-    # Priority 2: Yahoo Finance XAUUSD (Mac/Linux fallback)
+    # Priority 2: Local MT5 bridge (dashboard.py หรือ server อื่นที่รันบน port 8050)
+    p = _price_from_local_bridge()
+    if p:
+        _price_source_label = "LocalBridge-MT5"
+        return p
+
+    # Priority 3: Yahoo Finance XAUUSD
     p = _price_from_yahoo()
     if p:
         _price_source_label = "Yahoo-XAUUSD"
         return p
 
-    # Priority 3: Binance PAXG
+    # Priority 4: Binance PAXG
     p = _price_from_binance()
     if p:
         _price_source_label = "Binance-PAXG"
@@ -192,7 +213,7 @@ class MT5Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
 
-def run(port=8050):
+def run(port=8051):
     server_address = ('', port)
     httpd = HTTPServer(server_address, MT5Handler)
     print(f"🌐 HTTP server รันบน port {port}  →  http://localhost:{port}/api/price")
