@@ -32,20 +32,39 @@ PUSH_INTERVAL = 2
 
 
 # --- ฟังก์ชันดึงราคาจาก MT5 ---
-def get_mt5_price():
-    """
-    ใส่ code MT5 จริงที่นี่ เมื่อพร้อมใช้งาน:
+try:
+    import MetaTrader5 as _mt5_lib
+    _mt5_available = True
+except ImportError:
+    _mt5_lib = None
+    _mt5_available = False
+    print("⚠️  ไม่พบ MetaTrader5 — ติดตั้งด้วย: pip install MetaTrader5")
 
-    import MetaTrader5 as mt5
-    if not mt5.initialize():
-        return None
-    tick = mt5.symbol_info_tick("XAUUSD")
-    mt5.shutdown()
-    return tick.last if tick else None
-    """
-    # โหมด simulate (ลบออกเมื่อต่อ MT5 จริง)
-    import random
-    return round(random.uniform(3300.0, 3400.0), 2)
+_mt5_initialized = False
+
+def get_mt5_price():
+    global _mt5_initialized
+    if _mt5_available:
+        try:
+            if not _mt5_initialized:
+                if not _mt5_lib.initialize():
+                    print(f"  ❌ MT5 initialize ล้มเหลว: {_mt5_lib.last_error()}")
+                    return None
+                _mt5_initialized = True
+            tick = _mt5_lib.symbol_info_tick("XAUUSD")
+            if tick:
+                return round(tick.ask, 2)  # ใช้ ask price
+            else:
+                print(f"  ❌ ดึง XAUUSD ไม่ได้: {_mt5_lib.last_error()}")
+                return None
+        except Exception as e:
+            _mt5_initialized = False
+            print(f"  ❌ MT5 error: {e}")
+            return None
+    else:
+        # fallback simulator (ลบออกเมื่อ MT5 ทำงานได้)
+        import random
+        return round(random.uniform(3300.0, 3400.0), 2)
 
 
 # --- Push ราคาขึ้น Firebase RTDB ---
