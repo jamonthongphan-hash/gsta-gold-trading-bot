@@ -31,40 +31,84 @@ PUSH_INTERVAL = 2
 # =====================================================================
 
 
-# --- ฟังก์ชันดึงราคาจาก MT5 ---
+# --- ลองโหลด MetaTrader5 (Windows only) ---
 try:
     import MetaTrader5 as _mt5_lib
     _mt5_available = True
 except ImportError:
     _mt5_lib = None
     _mt5_available = False
-    print("⚠️  ไม่พบ MetaTrader5 — ติดตั้งด้วย: pip install MetaTrader5")
 
 _mt5_initialized = False
+_price_source_label = "unknown"
+
+
+def _price_from_mt5():
+    """ดึงราคาจาก MT5 Python API (Windows เท่านั้น)"""
+    global _mt5_initialized
+    try:
+        if not _mt5_initialized:
+            if not _mt5_lib.initialize():
+                return None
+            _mt5_initialized = True
+        tick = _mt5_lib.symbol_info_tick("XAUUSD")
+        return round(tick.ask, 2) if tick else None
+    except Exception:
+        _mt5_initialized = False
+        return None
+
+
+def _price_from_yahoo():
+    """ดึง XAUUSD จาก Yahoo Finance"""
+    if not HAS_REQUESTS:
+        return None
+    try:
+        url = 'https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD%3DX?interval=1m&range=1d'
+        r = req_lib.get(url, timeout=4, headers={'User-Agent': 'Mozilla/5.0'})
+        if r.status_code == 200:
+            meta = r.json()['chart']['result'][0]['meta']
+            return round(float(meta['regularMarketPrice']), 2)
+    except Exception:
+        pass
+    return None
+
+
+def _price_from_binance():
+    """ดึง PAXG/USDT จาก Binance (gold proxy)"""
+    if not HAS_REQUESTS:
+        return None
+    try:
+        r = req_lib.get('https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT', timeout=3)
+        if r.status_code == 200:
+            return round(float(r.json()['price']), 2)
+    except Exception:
+        pass
+    return None
+
 
 def get_mt5_price():
-    global _mt5_initialized
+    global _price_source_label
+
+    # Priority 1: MT5 Python (Windows)
     if _mt5_available:
-        try:
-            if not _mt5_initialized:
-                if not _mt5_lib.initialize():
-                    print(f"  ❌ MT5 initialize ล้มเหลว: {_mt5_lib.last_error()}")
-                    return None
-                _mt5_initialized = True
-            tick = _mt5_lib.symbol_info_tick("XAUUSD")
-            if tick:
-                return round(tick.ask, 2)  # ใช้ ask price
-            else:
-                print(f"  ❌ ดึง XAUUSD ไม่ได้: {_mt5_lib.last_error()}")
-                return None
-        except Exception as e:
-            _mt5_initialized = False
-            print(f"  ❌ MT5 error: {e}")
-            return None
-    else:
-        # fallback simulator (ลบออกเมื่อ MT5 ทำงานได้)
-        import random
-        return round(random.uniform(3300.0, 3400.0), 2)
+        p = _price_from_mt5()
+        if p:
+            _price_source_label = "MT5"
+            return p
+
+    # Priority 2: Yahoo Finance XAUUSD (Mac/Linux fallback)
+    p = _price_from_yahoo()
+    if p:
+        _price_source_label = "Yahoo-XAUUSD"
+        return p
+
+    # Priority 3: Binance PAXG
+    p = _price_from_binance()
+    if p:
+        _price_source_label = "Binance-PAXG"
+        return p
+
+    return None
 
 
 # --- Push ราคาขึ้น Firebase RTDB ---
@@ -101,7 +145,7 @@ def price_push_loop():
             ok = push_price_to_firebase(price)
             if ok:
                 fail_count = 0
-                print(f"  📤 Push XAUUSD = {price:.2f}  [{datetime.datetime.now().strftime('%H:%M:%S')}]")
+                print(f"  📤 Push XAUUSD = {price:.2f}  [{datetime.datetime.now().strftime('%H:%M:%S')}]  src={_price_source_label}")
             else:
                 fail_count += 1
                 if fail_count <= 3:
