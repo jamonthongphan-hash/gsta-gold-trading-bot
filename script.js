@@ -639,33 +639,70 @@ loadTrades().then(() => {
     fetchHistory();
 });
 connectLiveFeeds();
+loadPriceAlertsFromRTDB();
+syncAlertStatus();
 
 // =====================================================================
 // Price Alert UI functions
 // =====================================================================
+async function savePriceAlertsToRTDB() {
+    if (!RTDB_ENABLED || !rtdb) return;
+    // บันทึก alerts เป็น object keyed by id เพื่อให้ mt5_server.py อ่านได้
+    const obj = {};
+    priceAlerts.forEach(a => { obj[a.id] = a; });
+    await rtdb.ref('price_alerts').set(obj);
+}
+
+async function loadPriceAlertsFromRTDB() {
+    if (!RTDB_ENABLED || !rtdb) return;
+    try {
+        const snap = await rtdb.ref('price_alerts').get();
+        if (snap.exists()) {
+            const data = snap.val();
+            priceAlerts = Object.values(data).filter(a => a && !a.triggered);
+            renderPriceAlerts();
+        }
+    } catch(e) {}
+}
+
+// sync triggered status จาก server กลับมา UI
+function syncAlertStatus() {
+    if (!RTDB_ENABLED || !rtdb) return;
+    rtdb.ref('price_alerts').on('value', snap => {
+        if (!snap.exists()) return;
+        const data = snap.val();
+        priceAlerts.forEach(a => {
+            const srv = data[a.id];
+            if (srv && srv.triggered && !a.triggered) {
+                a.triggered = true;
+            }
+        });
+        renderPriceAlerts();
+    });
+}
+
 function addPriceAlert() {
     const price = parseFloat(document.getElementById('alert-price-input').value);
     const direction = document.getElementById('alert-dir-select').value;
     const label = document.getElementById('alert-label-input').value.trim();
     if (!price || isNaN(price)) return;
 
-    // ป้องกัน alert ซ้ำราคาเดิม
     if (priceAlerts.some(a => a.price === price && a.direction === direction && !a.triggered)) {
         alert('มี alert ราคานี้อยู่แล้ว'); return;
     }
 
-    priceAlerts.push({ price, direction, label, triggered: false });
+    const newAlert = { id: 'pa_' + Date.now(), price, direction, label, triggered: false };
+    priceAlerts.push(newAlert);
     document.getElementById('alert-price-input').value = '';
     document.getElementById('alert-label-input').value = '';
 
-    // ขอ permission browser notification
     if (Notification.permission === 'default') Notification.requestPermission();
 
+    savePriceAlertsToRTDB();
     renderPriceAlerts();
 
-    // ยืนยันกลับ Telegram
     const dir = direction === 'above' ? '↑ ขึ้นถึง' : '↓ ลงถึง';
-    sendTelegram(`🔔 <b>ตั้ง Price Alert แล้ว</b>\n${dir} <b>${price.toFixed(2)}</b>${label ? '\n📌 ' + label : ''}`);
+    sendTelegram(`🔔 <b>ตั้ง Price Alert แล้ว</b>\n${dir} <b>${price.toFixed(2)}</b>${label ? '\n📌 ' + label : ''}\n<i>แจ้งเตือนแม้ปิด web แล้ว</i>`);
 }
 
 function renderPriceAlerts() {
@@ -687,6 +724,7 @@ function renderPriceAlerts() {
 
 function removePriceAlert(index) {
     priceAlerts.splice(index, 1);
+    savePriceAlertsToRTDB();
     renderPriceAlerts();
 }
 // =====================================================================

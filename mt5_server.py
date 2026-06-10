@@ -147,6 +147,25 @@ def get_mt5_price():
     return None
 
 
+# =====================================================================
+# Telegram Notification
+# =====================================================================
+TELEGRAM_BOT_TOKEN = "8336486804:AAFSuGm6_U_OB45Wybf3Z2QAeJFehgB9AQA"
+TELEGRAM_CHAT_ID   = "8523273130"
+
+def send_telegram(message):
+    if not TELEGRAM_BOT_TOKEN or not HAS_REQUESTS:
+        return
+    try:
+        req_lib.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"},
+            timeout=5
+        )
+    except Exception as e:
+        print(f"  Telegram error: {e}")
+
+
 # --- Push ราคาขึ้น Firebase RTDB ---
 def push_price_to_firebase(price):
     if not FIREBASE_RTDB_URL or not HAS_REQUESTS:
@@ -159,7 +178,7 @@ def push_price_to_firebase(price):
     payload = {
         "price": price,
         "symbol": "XAUUSD",
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "source": "MT5"
     }
 
@@ -169,6 +188,71 @@ def push_price_to_firebase(price):
     except Exception as e:
         print(f"  Firebase push error: {e}")
         return False
+
+
+# =====================================================================
+# Price Alert — อ่านจาก Firebase RTDB, แจ้งเตือนแม้ web ปิดอยู่
+# =====================================================================
+_alerted_ids = set()  # กัน alert ซ้ำ
+
+def fetch_price_alerts():
+    """อ่าน price alerts จาก RTDB ที่ web app บันทึกไว้"""
+    if not FIREBASE_RTDB_URL or not HAS_REQUESTS:
+        return []
+    try:
+        url = FIREBASE_RTDB_URL.rstrip('/') + "/price_alerts.json"
+        r = req_lib.get(url, timeout=3)
+        if r.status_code == 200 and r.json():
+            data = r.json()
+            if isinstance(data, dict):
+                return list(data.values())
+            if isinstance(data, list):
+                return [a for a in data if a]
+    except Exception:
+        pass
+    return []
+
+def mark_alert_triggered(alert_id):
+    """อัปเดตสถานะ alert ใน RTDB เป็น triggered"""
+    if not FIREBASE_RTDB_URL or not HAS_REQUESTS:
+        return
+    try:
+        url = FIREBASE_RTDB_URL.rstrip('/') + f"/price_alerts/{alert_id}/triggered.json"
+        req_lib.put(url, json=True, timeout=3)
+    except Exception:
+        pass
+
+def check_price_alerts(current_price):
+    """ตรวจ price alerts ทุก tick — ส่ง Telegram ถ้าราคาแตะเป้า"""
+    alerts = fetch_price_alerts()
+    for alert in alerts:
+        if not isinstance(alert, dict):
+            continue
+        alert_id = alert.get('id')
+        if not alert_id or alert.get('triggered') or alert_id in _alerted_ids:
+            continue
+
+        price  = float(alert.get('price', 0))
+        direction = alert.get('direction', 'above')
+        label  = alert.get('label', '')
+
+        hit = (direction == 'above' and current_price >= price) or \
+              (direction == 'below' and current_price <= price)
+
+        if hit:
+            _alerted_ids.add(alert_id)
+            mark_alert_triggered(alert_id)
+            dir_th = '📈 ราคาขึ้นถึง' if direction == 'above' else '📉 ราคาลงถึง'
+            now_str = datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')
+            msg = (f"🔔 <b>GSTA Price Alert!</b>\n"
+                   f"━━━━━━━━━━━━━━━━━━\n"
+                   f"{dir_th} <b>{price:.2f}</b>\n"
+                   f"{('📌 ' + label + chr(10)) if label else ''}"
+                   f"ราคาปัจจุบัน: <b>{current_price:.2f}</b>\n"
+                   f"🕐 {now_str}\n"
+                   f"<i>(แจ้งเตือนจาก mt5_server แม้ web ปิดอยู่)</i>")
+            send_telegram(msg)
+            print(f"  🔔 Price Alert triggered! {dir_th} {price:.2f} (ราคา={current_price:.2f})")
 
 
 # --- Background thread: push ราคาทุก N วินาที ---
@@ -182,6 +266,7 @@ def price_push_loop():
             if ok:
                 fail_count = 0
                 print(f"  📤 Push XAUUSD = {price:.2f}  [{datetime.datetime.now().strftime('%H:%M:%S')}]  src={_price_source_label}")
+                check_price_alerts(price)   # ตรวจ alert ทุก push
             else:
                 fail_count += 1
                 if fail_count <= 3:
