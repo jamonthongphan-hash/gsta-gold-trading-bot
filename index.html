@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบเทรดทองคำ (GSTA Live Chart)</title>
+    <!-- TradingView Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        .tv-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        #tv_chart_container {
+            flex: 1;
+            width: 100%;
+        }
+        .signal-overlay {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.2rem;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: translateX(-50%) scale(1); }
+            50% { transform: translateX(-50%) scale(1.05); }
+            100% { transform: translateX(-50%) scale(1); }
+        }
+        .signal-overlay.buy { background: #26a69a; color: white; display: block; }
+        .signal-overlay.sell { background: #ef5350; color: white; display: block; }
+    </style>
+</head>
+<body>
+    <header class="app-header">
+        <div class="logo">
+            <span class="gold-text">GSTA Live</span>
+            <h1>ระบบเทรดอัจฉริยะ (SMC + D&S + Wave)</h1>
+        </div>
+        <div class="status-indicator">
+            <span class="status-dot" id="ws-dot"></span>
+            <span id="connection-status">กำลังเชื่อมต่อข้อมูลจริง...</span>
+            <span id="firebase-status" style="font-size:0.8rem; padding:4px 10px; background:#1e222d; border-radius:4px; border:1px solid #2a2e39; cursor:help;" title="สถานะ Firebase">💾 Local Only</span>
+            <span class="price-badge" id="current-price">----.--</span>
+        </div>
+    </header>
+
+    <main class="dashboard">
+        <!-- Chart Area using TradingView Widget -->
+        <section class="tv-wrapper">
+            <div style="padding: 10px; background: #151a25; border-bottom: 1px solid #1f2937; display: flex; align-items: center; gap: 10px;">
+                <label for="timeframe-select" style="color: #d1d4dc; font-weight: 600;">เลือก Timeframe:</label>
+                <select id="timeframe-select" style="padding: 6px 12px; background: #1f2937; color: white; border: 1px solid #374151; border-radius: 6px; cursor: pointer; font-family: inherit;">
+                    <option value="1m">1 นาที</option>
+                    <option value="3m">3 นาที</option>
+                    <option value="15m">15 นาที</option>
+                    <option value="1h">1 ชั่วโมง</option>
+                </select>
+            </div>
+            <div id="tv_chart_container"></div>
+            <div id="signal-overlay" class="signal-overlay">รอสัญญาณ...</div>
+        </section>
+
+        <!-- Sidebar Panel for Analysis -->
+        <section class="sidebar-panel">
+            <div class="panel-section">
+                <h2>ข้อมูลตลาด (Live)</h2>
+                <div class="stat-row">
+                    <span>เทรนด์ปัจจุบัน:</span>
+                    <span id="market-trend" class="badge neutral">-</span>
+                </div>
+                <div class="stat-row">
+                    <span>โครงสร้าง (SMC):</span>
+                    <span id="smc-struct" class="text-white">-</span>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h2>การวิเคราะห์โซน (Demand/Supply)</h2>
+                <div class="zone-info">
+                    <div class="zone-box bearish">
+                        <p class="zone-title">แนวต้าน / Supply</p>
+                        <p id="supply-zone-text" class="zone-val">-</p>
+                    </div>
+                    <div class="zone-box bullish">
+                        <p class="zone-title">แนวรับ / Demand</p>
+                        <p id="demand-zone-text" class="zone-val">-</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section highlight">
+                <h2>สัญญาณล่าสุด (ไม่รีเพนท์)</h2>
+                <div id="latest-signal" class="signal-card waiting">
+                    <h3 id="signal-type">กำลังรอจังหวะเทรด...</h3>
+                    <p id="signal-desc">สแกนหากลยุทธ์ Quasimodo (QM) + ออเดอร์บล็อก</p>
+                    <div class="trade-targets">
+                        <div>
+                            <span>ENTRY</span>
+                            <strong id="sig-entry">-</strong>
+                        </div>
+                        <div class="tp">
+                            <span>TP</span>
+                            <strong id="sig-tp">-</strong>
+                        </div>
+                        <div class="sl">
+                            <span>SL</span>
+                            <strong id="sig-sl">-</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="panel-section">
+                <h2>สถิติการเทรด (Win / Loss)</h2>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: center; margin-top: 10px;">
+                    <div style="background: #1f2937; padding: 10px; border-radius: 6px;">
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Win Rate</div>
+                        <div id="stat-winrate" style="font-size: 1.2rem; font-weight: bold; color: #26a69a;">0%</div>
+                    </div>
+                    <div style="background: #1f2937; padding: 10px; border-radius: 6px;">
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Total Trades</div>
+                        <div id="stat-total" style="font-size: 1.2rem; font-weight: bold; color: #d1d4dc;">0</div>
+                    </div>
+                    <div style="background: #1f2937; padding: 10px; border-radius: 6px;">
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Win</div>
+                        <div id="stat-win" style="font-size: 1.2rem; font-weight: bold; color: #26a69a;">0</div>
+                    </div>
+                    <div style="background: #1f2937; padding: 10px; border-radius: 6px;">
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Loss</div>
+                        <div id="stat-loss" style="font-size: 1.2rem; font-weight: bold; color: #ef5350;">0</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel-section info-text">
+                <p><strong>การตั้งค่า Indicator บนกราฟ:</strong><br>
+                1. เปิด Indicator <strong>Bollinger Bands</strong> (เหมือนในรูปภาพ GOLD HUNTERs)<br>
+                2. กราฟใช้ <strong>OANDA:XAUUSD</strong> ดึงข้อมูลแบบ Realtime ทันที</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Alert Modal for Signals -->
+    <div id="alert-modal" class="modal-backdrop" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-icon">⚠️</div>
+            <h2 id="alert-title">สัญญาณเทรดใหม่!</h2>
+            <p id="alert-message">มีสัญญาณ BUY/SELL ใหม่เกิดขึ้นบนกราฟ</p>
+            <button id="alert-ok-btn" class="modal-btn">รับทราบ (OK)</button>
+        </div>
+    </div>
+
+    <!-- Alert Audio -->
+    <audio id="alert-sound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+
+    <!-- Firebase SDK (Compat v10) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+    <script src="script.js"></script>
+</body>
+</html>
