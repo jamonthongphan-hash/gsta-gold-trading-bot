@@ -30,9 +30,55 @@ alertOkBtn.addEventListener('click', () => {
 let candleData = [];
 
 // =====================================================================
+// Telegram Notification — ใช้ Bot เดียวกับ Gold Trading Bot อัตโนมัติ
+// =====================================================================
+const TELEGRAM_BOT_TOKEN = "8336486804:AAFSuGm6_U_OB45Wybf3Z2QAeJFehgB9AQA";
+const TELEGRAM_CHAT_ID   = "8523273130";
+
+async function sendTelegram(message) {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    try {
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: TELEGRAM_CHAT_ID,
+                text: message,
+                parse_mode: 'HTML'
+            })
+        });
+    } catch(e) { console.warn('Telegram send failed:', e); }
+}
+// =====================================================================
+
+// =====================================================================
+// Price Alert — แจ้งเตือนเมื่อราคาแตะระดับที่ตั้งไว้
+// =====================================================================
+let priceAlerts = [];  // [{ price, direction, label, triggered }]
+
+function checkPriceAlerts(currentPrice) {
+    priceAlerts.forEach(alert => {
+        if (alert.triggered) return;
+        const hit = alert.direction === 'above'
+            ? currentPrice >= alert.price
+            : currentPrice <= alert.price;
+        if (hit) {
+            alert.triggered = true;
+            const dir = alert.direction === 'above' ? '📈 ราคาขึ้นถึง' : '📉 ราคาลงถึง';
+            const msg = `🔔 <b>GSTA Price Alert!</b>\n━━━━━━━━━━━━━━━━━━\n${dir} <b>${alert.price.toFixed(2)}</b>\n${alert.label ? '📌 ' + alert.label + '\n' : ''}ราคาปัจจุบัน: <b>${currentPrice.toFixed(2)}</b>\n🕐 ${new Date().toLocaleTimeString('th-TH')}`;
+            sendTelegram(msg);
+            // แสดง browser notification ด้วย
+            if (Notification.permission === 'granted') {
+                new Notification(`Price Alert: ${currentPrice.toFixed(2)}`, { body: `${dir} ${alert.price.toFixed(2)}` });
+            }
+            renderPriceAlerts();
+        }
+    });
+}
+// =====================================================================
+
+// =====================================================================
 // MT5 Bridge URL — เปลี่ยนเป็น ngrok URL เมื่อต้องการเข้าถึงจาก Vercel
-// ตัวอย่าง: "https://abc123.ngrok-free.app"
-// หรือปล่อยว่างไว้ "" เพื่อใช้ localhost อย่างเดียว
 // =====================================================================
 const MT5_NGROK_URL = "";  // ← วาง ngrok URL ที่นี่
 // =====================================================================
@@ -547,6 +593,9 @@ function processLiveTick(price, source) {
     now.setSeconds(0, 0);
     const tickTime = Math.floor(now.getTime() / 1000);
 
+    // ตรวจ price alerts ทุก tick
+    checkPriceAlerts(price);
+
     if (!currentCandle || currentCandle.time !== tickTime) {
         if (currentCandle) {
             analyzeMarketStructure();
@@ -590,6 +639,57 @@ loadTrades().then(() => {
     fetchHistory();
 });
 connectLiveFeeds();
+
+// =====================================================================
+// Price Alert UI functions
+// =====================================================================
+function addPriceAlert() {
+    const price = parseFloat(document.getElementById('alert-price-input').value);
+    const direction = document.getElementById('alert-dir-select').value;
+    const label = document.getElementById('alert-label-input').value.trim();
+    if (!price || isNaN(price)) return;
+
+    // ป้องกัน alert ซ้ำราคาเดิม
+    if (priceAlerts.some(a => a.price === price && a.direction === direction && !a.triggered)) {
+        alert('มี alert ราคานี้อยู่แล้ว'); return;
+    }
+
+    priceAlerts.push({ price, direction, label, triggered: false });
+    document.getElementById('alert-price-input').value = '';
+    document.getElementById('alert-label-input').value = '';
+
+    // ขอ permission browser notification
+    if (Notification.permission === 'default') Notification.requestPermission();
+
+    renderPriceAlerts();
+
+    // ยืนยันกลับ Telegram
+    const dir = direction === 'above' ? '↑ ขึ้นถึง' : '↓ ลงถึง';
+    sendTelegram(`🔔 <b>ตั้ง Price Alert แล้ว</b>\n${dir} <b>${price.toFixed(2)}</b>${label ? '\n📌 ' + label : ''}`);
+}
+
+function renderPriceAlerts() {
+    const list = document.getElementById('price-alerts-list');
+    if (!list) return;
+    if (priceAlerts.length === 0) { list.innerHTML = '<div style="color:#6b7280;font-size:0.8rem;">ยังไม่มี alert</div>'; return; }
+    list.innerHTML = priceAlerts.map((a, i) => {
+        const dir = a.direction === 'above' ? '↑' : '↓';
+        const color = a.triggered ? '#6b7280' : (a.direction === 'above' ? '#26a69a' : '#ef5350');
+        const status = a.triggered ? ' ✓' : '';
+        return `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#1f2937;border-radius:4px;font-size:0.8rem;opacity:${a.triggered?0.5:1}">
+            <span style="color:${color};font-weight:bold;">${dir} ${a.price.toFixed(2)}</span>
+            ${a.label ? `<span style="color:#9ca3af;flex:1">${a.label}</span>` : '<span style="flex:1"></span>'}
+            <span style="color:#6b7280">${status}</span>
+            <button onclick="removePriceAlert(${i})" style="background:none;border:none;color:#ef5350;cursor:pointer;padding:0 4px;font-size:0.85rem;">✕</button>
+        </div>`;
+    }).join('');
+}
+
+function removePriceAlert(index) {
+    priceAlerts.splice(index, 1);
+    renderPriceAlerts();
+}
+// =====================================================================
 
 // 4. SMC / Price Action Analyzer (Winter Trader & SMC Concepts)
 let swings = { highs: [], lows: [] };
@@ -780,4 +880,19 @@ function triggerSignal(type, candle, reason) {
         saveTrades();
         refreshMarkers();
     }
+
+    // Telegram notification
+    const emoji = type === 'BUY' ? '🟢📈' : '🔴📉';
+    const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
+    const tgMsg = `${emoji} <b>GSTA SIGNAL — ${type}</b>
+━━━━━━━━━━━━━━━━━━
+Signal : <b>${type}</b>
+Entry  : <b>${entry.toFixed(2)}</b>
+TP     : <b>${tp.toFixed(2)}</b>
+SL     : <b>${sl.toFixed(2)}</b>
+R:R    : 1:${rr.toFixed(1)}
+━━━━━━━━━━━━━━━━━━
+📌 ${reason}
+🕐 ${new Date().toLocaleTimeString('th-TH')} ${new Date().toLocaleDateString('th-TH')}`;
+    sendTelegram(tgMsg);
 }

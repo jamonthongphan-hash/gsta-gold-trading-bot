@@ -143,6 +143,27 @@
                 </div>
             </div>
             
+            <!-- Price Alert Panel -->
+            <div class="panel-section">
+                <h2>🔔 แจ้งเตือนราคา (Telegram)</h2>
+                <div style="display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap;">
+                    <input id="alert-price-input" type="number" step="0.1" placeholder="ราคาเป้าหมาย เช่น 4200.00"
+                        style="flex:1; min-width:120px; padding:6px 10px; background:#1f2937; color:white; border:1px solid #374151; border-radius:6px; font-size:0.85rem;">
+                    <select id="alert-dir-select"
+                        style="padding:6px 8px; background:#1f2937; color:white; border:1px solid #374151; border-radius:6px; font-size:0.85rem;">
+                        <option value="above">↑ ขึ้นถึง</option>
+                        <option value="below">↓ ลงถึง</option>
+                    </select>
+                </div>
+                <div style="display:flex; gap:6px; margin-bottom:8px;">
+                    <input id="alert-label-input" type="text" placeholder="หมายเหตุ (เช่น แนวต้าน)"
+                        style="flex:1; padding:6px 10px; background:#1f2937; color:white; border:1px solid #374151; border-radius:6px; font-size:0.85rem;">
+                    <button onclick="addPriceAlert()"
+                        style="padding:6px 14px; background:#26a69a; color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.85rem; white-space:nowrap;">+ เพิ่ม</button>
+                </div>
+                <div id="price-alerts-list" style="display:flex; flex-direction:column; gap:4px; max-height:120px; overflow-y:auto;"></div>
+            </div>
+
             <div class="panel-section info-text">
                 <p><strong>การตั้งค่า Indicator บนกราฟ:</strong><br>
                 1. เปิด Indicator <strong>Bollinger Bands</strong> (เหมือนในรูปภาพ GOLD HUNTERs)<br>
