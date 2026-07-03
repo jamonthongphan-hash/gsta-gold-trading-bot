@@ -395,8 +395,8 @@ function updatePriceSourceBadge(source) {
         'MT5-Firebase': { txt: '🟢 MT5 Live',      color: '#26a69a', tip: 'ราคาจริงจาก MT5 ผ่าน Firebase Cloud' },
         'MT5':          { txt: '🟢 MT5 Local',     color: '#26a69a', tip: 'ราคาจริงจาก MT5 บนเครื่องเดียวกัน' },
         'metals.live':  { txt: '🟡 Spot Gold (metals.live)', color: '#f2a900', tip: 'ราคา Spot Gold realtime — ใกล้ MT5 มาก (±$0.10)' },
-        'Yahoo':        { txt: '🟢 Spot Gold (Yahoo)',       color: '#26a69a', tip: 'ราคา Spot Gold (XAUUSD=X) จาก Yahoo Finance' },
-        'PAXG':         { txt: '🟠 PAXG Backup',   color: '#ff9800', tip: 'PAXG Token จาก Binance — สำรองเมื่อแหล่งอื่นล่ม (อาจคลาดเคลื่อน $1-2)' },
+        'Yahoo':        { txt: '🟡 Spot Gold (Yahoo)',       color: '#f2a900', tip: 'ราคา Spot Gold จาก Yahoo Finance (สัญลักษณ์เก่าอาจถูกยกเลิก)' },
+        'PAXG':         { txt: '🟢 Paxos Gold (Live)',       color: '#26a69a', tip: 'ราคาทองคำผูกจริง (Paxos Gold 1:1) จาก Binance — แม่นยำ ไม่ติด CORS เสถียรที่สุดบน Web' },
         'TradingView':  { txt: '🟢 TradingView',   color: '#26a69a', tip: 'ราคาจาก TradingView' },
     };
     const s = sources[source] || { txt: '⏳ ' + source, color: '#787b86', tip: 'กำลังเชื่อมต่อ' };
@@ -1597,47 +1597,43 @@ async function fetchYahooJSON(yahooUrl, timeoutMs = 8000) {
 }
 
 async function fetchHistory() {
-    // ── ดึงประวัติราคาทองคำจาก Yahoo Finance XAUUSD=X เท่านั้น (ตัด MT5 และ PAXG ออกเพื่อป้องกันราคากระโดด) ──
-    const yahooMap = {
-        '1m':  { yi: '1m',  range: '5d',   aggN: 1 },
-        '3m':  { yi: '1m',  range: '5d',   aggN: 3 },  // aggregate 1m×3
-        '5m':  { yi: '5m',  range: '60d',  aggN: 1 },
-        '15m': { yi: '15m', range: '60d',  aggN: 1 },
-        '30m': { yi: '30m', range: '60d',  aggN: 1 },
-        '45m': { yi: '15m', range: '60d',  aggN: 3 },  // aggregate 15m×3
-        '1h':  { yi: '60m', range: '730d', aggN: 1 },
-        '4h':  { yi: '60m', range: '730d', aggN: 4 },  // aggregate 1h×4
-        '1d':  { yi: '1d',  range: '10y',  aggN: 1 },
+    // ── ดึงประวัติราคาทองคำจาก Binance PAXGUSDT (Paxos Gold) แหล่งเดียว เสถียรที่สุดบน Web ไม่ติด CORS และไม่กระโดด ──
+    const binanceMap = {
+        '1m':  { bi: '1m',  limit: 1000, aggN: 1 },
+        '3m':  { bi: '3m',  limit: 1000, aggN: 1 },
+        '5m':  { bi: '5m',  limit: 1000, aggN: 1 },
+        '15m': { bi: '15m', limit: 1000, aggN: 1 },
+        '30m': { bi: '30m', limit: 1000, aggN: 1 },
+        '45m': { bi: '15m', limit: 1000, aggN: 3 },  // aggregate 15m×3 -> 45m
+        '1h':  { bi: '1h',  limit: 1000, aggN: 1 },
+        '4h':  { bi: '4h',  limit: 1000, aggN: 1 },
+        '1d':  { bi: '1d',  limit: 1000, aggN: 1 },
     };
-    const cfg = yahooMap[currentInterval] || yahooMap['1m'];
-    
-    for (const host of ['query1', 'query2']) {
-        const yahooUrl = `https://${host}.finance.yahoo.com/v8/finance/chart/XAUUSD%3DX?interval=${cfg.yi}&range=${cfg.range}`;
-        const j = await fetchYahooJSON(yahooUrl, 8000);
-        if (j) {
-            const res = j.chart?.result?.[0];
-            if (res?.timestamp) {
-                const q = res.indicators.quote[0];
-                let raw = res.timestamp.map((t, i) => ({
-                    time:  t,
-                    open:  q.open[i],
-                    high:  q.high[i],
-                    low:   q.low[i],
-                    close: q.close[i],
-                })).filter(c => c.open != null && c.close != null);
-                if (raw.length >= 20) {
-                    if (cfg.aggN > 1) raw = aggregateCandles(raw, cfg.aggN);
-                    candleData = raw.slice(-1000);
-                    currentCandle = null;
-                    updateChartData();
-                    analyzeMarketStructure();
-                    console.log(`✅ History loaded from Yahoo XAUUSD=X (${host}, ${candleData.length} bars, TF=${currentInterval})`);
-                    return;
-                }
+    const cfg = binanceMap[currentInterval] || binanceMap['1m'];
+    try {
+        const r = await fetch(`https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval=${cfg.bi}&limit=${cfg.limit}`, { signal: AbortSignal.timeout(6000) });
+        if (r.ok) {
+            const kl = await r.json();
+            let raw = kl.map(c => ({
+                time: Math.floor(c[0] / 1000),
+                open: parseFloat(c[1]),
+                high: parseFloat(c[2]),
+                low: parseFloat(c[3]),
+                close: parseFloat(c[4]),
+            })).filter(c => c.open != null && c.close != null && !isNaN(c.close));
+            if (raw.length >= 20) {
+                if (cfg.aggN > 1) raw = aggregateCandles(raw, cfg.aggN);
+                candleData = raw.slice(-1000);
+                currentCandle = null;
+                updateChartData();
+                analyzeMarketStructure();
+                console.log(`✅ History loaded from Binance PAXGUSDT (${candleData.length} bars, TF=${currentInterval})`);
+                return;
             }
         }
+    } catch(err) {
+        console.warn("History fetch failed:", err);
     }
-    console.warn("Yahoo history fetch failed.");
 }
 
 // Map timeframe string → seconds per bar (used to align live ticks with historical bars)
@@ -1655,37 +1651,65 @@ function alignTimeToInterval(timestampSec, interval) {
 // 3. Live Price Connection (1:1 Copy from Original Code for Real-time Feel)
 let priceSource = '';
 function connectLiveFeeds() {
-    elStatus.textContent = "กำลังเชื่อมต่อข้อมูลตลาดจริง (Yahoo XAUUSD)...";
+    elStatus.textContent = "กำลังเชื่อมต่อตลาดจริง (Paxos Gold PAXG)...";
     elDot.classList.add('connected');
 
-    // ── ดึงราคา Live Spot Gold จาก Yahoo Finance XAUUSD=X เท่านั้น (ตัด MT5, metals.live, PAXG ออกทั้งหมด) ──
-    const fetchYahooSpot = async () => {
-        const hosts = ['query1', 'query2'];
-        for (const host of hosts) {
-            try {
-                const yahooUrl = `https://${host}.finance.yahoo.com/v8/finance/chart/XAUUSD%3DX?interval=1m&range=1d`;
-                const j = await fetchYahooJSON(yahooUrl, 4000);
-                if (j) {
-                    const p = j.chart?.result?.[0]?.meta?.regularMarketPrice;
-                    if (p && p > 100) {
-                        priceSource = 'Yahoo';
-                        elStatus.textContent = "เชื่อมต่อตลาดจริง (Yahoo XAUUSD=X)";
-                        processLiveTick(p, 'Yahoo');
-                        return;
+    // ── WebSocket Realtime Feed จาก Binance PAXGUSDT (เร็วสุด ไม่ติด CORS ไม่กระโดด) ──
+    let wsActive = false;
+    const connectWS = () => {
+        try {
+            const ws = new WebSocket('wss://stream.binance.com:9443/ws/paxgusdt@trade');
+            ws.onopen = () => {
+                wsActive = true;
+                console.log("⚡ เชื่อมต่อ WebSocket PAXGUSDT สำเร็จ");
+            };
+            ws.onmessage = (event) => {
+                try {
+                    const d = JSON.parse(event.data);
+                    const p = parseFloat(d.p || d.c || 0);
+                    if (p > 100) {
+                        priceSource = 'PAXG';
+                        elStatus.textContent = "เชื่อมต่อตลาดจริง (Paxos Gold PAXG ⚡)";
+                        processLiveTick(p, 'PAXG');
                     }
+                } catch(e) {}
+            };
+            ws.onclose = () => {
+                wsActive = false;
+                setTimeout(connectWS, 5000);
+            };
+            ws.onerror = () => {
+                wsActive = false;
+            };
+        } catch(e) { wsActive = false; }
+    };
+    connectWS();
+
+    // ── REST Polling Fallback (ทำงานเมื่อ WS หลุดหรือเริ่มโหลดครั้งแรก) ──
+    const fetchRest = async () => {
+        try {
+            const r = await fetch('https://data-api.binance.vision/api/v3/ticker/24hr?symbol=PAXGUSDT', { signal: AbortSignal.timeout(3000) });
+            if (r.ok) {
+                const d = await r.json();
+                const p = parseFloat(d.lastPrice);
+                if (p > 100) {
+                    priceSource = 'PAXG';
+                    elStatus.textContent = "เชื่อมต่อตลาดจริง (Paxos Gold PAXG ✅)";
+                    processLiveTick(p, 'PAXG');
                 }
-            } catch(e) {}
-        }
+            }
+        } catch(e) {}
     };
 
     let restIv = null;
     const startRest = () => {
         if (!restIv) {
-            fetchYahooSpot();
-            restIv = setInterval(fetchYahooSpot, 3000); // ดึงราคา Yahoo ทุก 3 วินาที
+            fetchRest();
+            restIv = setInterval(() => {
+                if (!wsActive) fetchRest();
+            }, 2000);
         }
     };
-
     startRest();
 }
 

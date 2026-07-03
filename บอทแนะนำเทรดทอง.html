@@ -2161,32 +2161,21 @@ window.addEventListener('unhandledrejection', function(e) {
 
             const fetchSpot = async () => {
                 if (priceSourceRef.current.includes('TradingView')) return;
-
-                // ── ดึงราคา Spot Gold จาก Yahoo Finance XAUUSD=X เท่านั้น ───────────────────────
-                const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD%3DX?interval=1m&range=1d';
-                const proxies = [
-                    'https://api.allorigins.win/raw?url=' + encodeURIComponent(yahooUrl),
-                    'https://corsproxy.io/?' + encodeURIComponent(yahooUrl),
-                    yahooUrl,
-                ];
-                for (const src of proxies) {
-                    try {
-                        const res = await fetch(src, { signal: AbortSignal.timeout(5000) });
-                        if (!res.ok) continue;
+                try {
+                    const res = await fetch('https://data-api.binance.vision/api/v3/ticker/24hr?symbol=PAXGUSDT', { signal: AbortSignal.timeout(4000) });
+                    if (res.ok) {
                         const j = await res.json();
-                        const meta = j.chart?.result?.[0]?.meta;
-                        const p = meta?.regularMarketPrice;
-                        if (p && p > 100 && active) {
-                            const prev = meta?.previousClose || p;
+                        const p = parseFloat(j.lastPrice);
+                        const chg = parseFloat(j.priceChangePercent || 0);
+                        if (p > 100 && active) {
                             latestPriceRef.current = p;
-                            priceSourceRef.current = 'Yahoo';
+                            priceSourceRef.current = 'PAXG';
                             setWsConnected(true);
-                            setPriceSource('Yahoo XAUUSD=X (Spot)');
-                            setGoldData(prev2 => ({ ...prev2, price: p, change24h: (p - prev) / prev * 100, source: 'Yahoo' }));
-                            return;
+                            setPriceSource('Paxos Gold PAXG ⚡');
+                            setGoldData(prev2 => ({ ...prev2, price: p, change24h: chg, source: 'Paxos Gold PAXG' }));
                         }
-                    } catch(e){}
-                }
+                    }
+                } catch(e) {}
             };
 
             let restIv = null;
@@ -2196,8 +2185,30 @@ window.addEventListener('unhandledrejection', function(e) {
                 if (!restIv) restIv = setInterval(fetchSpot, 3000);
             };
 
+            // ── WebSocket Realtime Feed จาก Binance PAXGUSDT ────────────────────────
+            const startWS = () => {
+                try {
+                    const ws = new WebSocket('wss://stream.binance.com:9443/ws/paxgusdt@trade');
+                    ws.onopen = () => { if (active) setWsConnected(true); };
+                    ws.onmessage = (e) => {
+                        try {
+                            const d = JSON.parse(e.data);
+                            const p = parseFloat(d.p || d.c || 0);
+                            if (p > 100 && active && !priceSourceRef.current.includes('TradingView')) {
+                                latestPriceRef.current = p;
+                                priceSourceRef.current = 'PAXG';
+                                setPriceSource('Paxos Gold PAXG ⚡');
+                                setGoldData(prev2 => ({ ...prev2, price: p, source: 'Paxos Gold PAXG' }));
+                            }
+                        } catch(err){}
+                    };
+                    ws.onclose = () => { if (active) setTimeout(startWS, 5000); };
+                    wsRef = ws;
+                } catch(err){}
+            };
+            startWS();
             startRest();
-            return () => { active = false; if (restIv) clearInterval(restIv); };
+            return () => { active = false; if (restIv) clearInterval(restIv); if (wsRef) wsRef.close(); };
         }, []);
 
         // ── Klines + Auto Analysis ────────────────────────
@@ -2205,69 +2216,35 @@ window.addEventListener('unhandledrejection', function(e) {
             let isFirst = true, lastRun = 0;
 
             const fetchKlines = async () => {
-                // ดึง 30 วัน เพื่อให้มีแท่งเทียนเพียงพอสำหรับ EMA200 และ Fibonacci
-                const yahooKl = 'https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD%3DX?interval=1h&range=30d&includePrePost=false';
-                const yahooFuturesKl = 'https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1h&range=30d&includePrePost=false';
-                const src = [
-                    'https://api.allorigins.win/raw?url=' + encodeURIComponent(yahooKl),
-                    'https://corsproxy.io/?' + encodeURIComponent(yahooKl),
-                    yahooKl,
-                    'https://api.allorigins.win/raw?url=' + encodeURIComponent(yahooFuturesKl),
-                    'https://corsproxy.io/?' + encodeURIComponent(yahooFuturesKl),
-                    yahooFuturesKl,
-                ];
-                for (const s of src) {
-                    try {
-                        const res = await fetch(s, { signal: AbortSignal.timeout(8000) });
-                        if (!res.ok) continue;
-                        const j = await res.json();
-                        const result = j.chart?.result?.[0];
-                        if (!result) continue;
-                        const { timestamp, indicators: { quote: [q] }, meta } = result;
-                        const candles = timestamp.map((t, i) => [t*1000, q.open[i], q.high[i], q.low[i], q.close[i], q.volume[i]])
-                                                  .filter(c => c[1] != null && c[4] != null && c[1] > 0);
-                        if (candles.length < 20) continue;
-                        // Update price if not from TradingView
-                        if (!priceSourceRef.current.includes('TradingView') && meta.regularMarketPrice > 100) {
-                            const p = meta.regularMarketPrice;
-                            latestPriceRef.current = p;
-                            setGoldData(prev => ({ ...prev, price: p, source: 'Yahoo XAUUSD/GC' }));
+                try {
+                    const res = await fetch('https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval=1h&limit=720', { signal: AbortSignal.timeout(6000) });
+                    if (res.ok) {
+                        const kl = await res.json();
+                        const candles = kl.map(c => [+c[0], +c[1], +c[2], +c[3], +c[4], +c[5]]).filter(c => c[1] > 100);
+                        if (candles.length >= 20) {
+                            if (!priceSourceRef.current.includes('TradingView')) {
+                                const p = candles[candles.length - 1][4];
+                                latestPriceRef.current = p;
+                                setGoldData(prev => ({ ...prev, price: p, source: 'Paxos Gold PAXG' }));
+                            }
+                            return candles;
                         }
-                        return candles;
-                    } catch(e){}
-                }
+                    }
+                } catch(e) {}
                 return [];
             };
 
             // ── ฟังก์ชันดึง Klines ตาม interval ─────────────
             const fetchKlinesByInterval = async (interval, range) => {
-                const urls = [
-                    `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=${interval}&range=${range}`,
-                    `https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD%3DX?interval=${interval}&range=${range}`
-                ].flatMap(u => [
-                    'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
-                    'https://corsproxy.io/?' + encodeURIComponent(u),
-                    u
-                ]);
-                for (const url of urls) {
-                    try {
-                        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-                        if (!res.ok) continue;
-                        const j = await res.json();
-                        const result = j.chart?.result?.[0];
-                        const q = result?.indicators?.quote?.[0];
-                        const candles = result?.timestamp?.map((t, i) => [
-                            t*1000, q.open[i], q.high[i], q.low[i], q.close[i], q.volume?.[i] ?? 0
-                        ]).filter(c => c[1] != null && c[4] != null && c[1] > 100);
-                        if (candles?.length > 15) return candles;
-                    } catch(e) {}
-                }
-                // Binance PAXG fallback
                 try {
-                    const binInt = interval === '1d' ? '1d' : interval === '4h' ? '4h' : '1h';
-                    const r = await fetch(`https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval=${binInt}&limit=250`, { signal: AbortSignal.timeout(6000) });
-                    const kl = await r.json();
-                    return kl.map(c => [+c[0], +c[1], +c[2], +c[3], +c[4], +c[5]]);
+                    const binInt = interval === '1d' ? '1d' : interval === '4h' ? '4h' : interval === '15m' ? '15m' : '1h';
+                    const limit = range === '10y' ? 1000 : range === '730d' ? 1000 : 500;
+                    const res = await fetch(`https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval=${binInt}&limit=${limit}`, { signal: AbortSignal.timeout(6000) });
+                    if (res.ok) {
+                        const kl = await res.json();
+                        const candles = kl.map(c => [+c[0], +c[1], +c[2], +c[3], +c[4], +c[5]]).filter(c => c[1] > 100);
+                        if (candles.length > 15) return candles;
+                    }
                 } catch(e) {}
                 return [];
             };
@@ -3666,7 +3643,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
                 <footer className="mt-8 pb-4 text-center text-xs text-stone-600 border-t border-stone-800 pt-4">
                     <p>⚠️ ระบบนี้เป็นเครื่องมือช่วยวิเคราะห์ ไม่ใช่คำแนะนำทางการเงิน การเทรดมีความเสี่ยงสูง</p>
-                    <p className="mt-1">Rule-Based Engine • ราคาจาก TradingView / metals.live / Yahoo Finance • Chart by TradingView</p>
+                    <p className="mt-1">Rule-Based Engine • ราคาจาก TradingView / Paxos Gold (Binance) • Chart by TradingView</p>
                 </footer>
             </div>
         );
